@@ -134,7 +134,7 @@ export class SoundManager extends DisposableEventTarget {
     setLanguage(language: string): boolean {
         if (this.state !== RUNNING) return false;
         if (this.language === language) return false;
-        if (!this.languages().includes(language)) return false;
+        if (!this.getLanguages().includes(language)) return false;
         this.language = language;
         this.dispatchEvent(new Event('languagechanged'));
         return true;
@@ -205,8 +205,8 @@ export class SoundManager extends DisposableEventTarget {
     }
 
     /**
-     * Get the names of all the sounds in the current package.
-     * With the current language, or no language.
+     * Get the names of all the sounds in the selected package.
+     * With the selected languages.
      * @param {string} packageName - The name of the package to use.
      * @param {string[]} languages - The languages to use, default current language.
      * @returns {string[]}
@@ -214,9 +214,46 @@ export class SoundManager extends DisposableEventTarget {
      * const names = manager.names()
      * // names === ["a", "b", "c"]
      */
-    sourceNames(packageName: string = this.cpn, languages: string[] = [this.language]): string[] {
+    getSourceNames(packageName: string = this.cpn, languages: string[] = [this.language]): string[] {
         if (this.state !== RUNNING) return [];
         return [...new Set(this.getPackage(packageName).filter(item => languages.includes(item[LANG])).map(item => item[SOURCE]))];
+    }
+
+    /**
+     * Get the names of all the currently active sounds.
+     * Meaning the sounds that are available in the current package and language.
+     * Or the current package and no language.
+     */
+    getActiveSourceNames(): string[] {
+        return this.getSourceNames(this.cpn, [this.language, NO_LANG])
+    }
+
+    /**
+     * Get the path to the sound file.
+     */
+    getSourceUrl(sourceName: string): string | undefined {
+        if (this.state !== RUNNING) return undefined;
+        const item = this.findItemBySourceName(sourceName);
+        if (item === undefined) return undefined;
+        return this.path + item[FILE] + this.ext;
+    }
+
+    getSourceNumSamples(sourceName: string): number | undefined {
+        if (this.state !== RUNNING) return undefined;
+        const item = this.findItemBySourceName(sourceName);
+        return item ? item[NUMS] : undefined;
+    }
+
+    getSourceNumChannels(sourceName: string): number | undefined {
+        if (this.state !== RUNNING) return undefined;
+        const item = this.findItemBySourceName(sourceName);
+        return item ? this.getNumChannelsByFile(item[FILE]) : undefined;
+    }
+
+    getSourceDuration(sourceName: string): number | undefined {
+        if (this.state !== RUNNING) return undefined;
+        const item = this.findItemBySourceName(sourceName);
+        return item ? item[NUMS] / this.context.sampleRate : undefined;
     }
 
     /**
@@ -229,7 +266,7 @@ export class SoundManager extends DisposableEventTarget {
      * const languages = manager.languages("another_package")
      * // languages === ["en", "sv"]
      */
-    languages(name: string = this.cpn): string[] {
+    getLanguages(name: string = this.cpn): string[] {
         if (this.state !== RUNNING) return [];
         return [...new Set(this.getPackage(name).map(item => item[LANG]))];
     }
@@ -330,7 +367,7 @@ export class SoundManager extends DisposableEventTarget {
         if (buffer !== undefined) {
             return buffer;
         }
-        const nc = this.numChannels(file);
+        const nc = this.getNumChannelsByFile(file);
         if (nc === undefined) {
             return null;
         }
@@ -357,7 +394,7 @@ export class SoundManager extends DisposableEventTarget {
         if (buffer !== undefined) {
             return buffer;
         }
-        const nc = this.numChannels(file);
+        const nc = this.getNumChannelsByFile(file);
         if (nc === undefined) {
             return null;
         }
@@ -379,7 +416,7 @@ export class SoundManager extends DisposableEventTarget {
      * const numChannels = manager.numChannels("24kb.2ch.12372919168763747631")
      * // numChannels === 2
      */
-    numChannels(file: string): number | undefined {
+    getNumChannelsByFile(file: string): number | undefined {
         try {
             return Number(file.split(".")[1].replace("ch", ""));
         } catch {
@@ -395,7 +432,7 @@ export class SoundManager extends DisposableEventTarget {
      * const numSamples = manager.numSamples("24kb.2ch.12372919168763747631")
      * // numSamples === 12372919168763747631
      */
-    numSamples(file: string): number | undefined {
+    getNumSamplesByFile(file: string): number | undefined {
         const item = this.findItemByFileName(file)
         return item ? item[NUMS] : undefined;
     }
