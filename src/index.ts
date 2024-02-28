@@ -59,7 +59,9 @@ export class SoundManager extends DisposableEventTarget {
      * @param {".webm" | ".mp4"} [ext] - The extension of the sound files to use. Default ".webm"
      * @param {readonly string[]} [priorities] - The load priorities. Default []
      * @param {Map<string, Promise<AudioBuffer | null>>} [promises] - The promises of the sound files. Default new Map()
+     * @param {Map<string, Promise<AudioBuffer | null>>} [promises] - The promises for the reversed buffers of the sound files. Default new Map()
      * @param {Map<string, AudioBuffer>} [buffers] - The sound buffers. Default new Map()
+     * @param {Map<string, AudioBuffer>} [refersed] - The sound buffers but reversed. Default new Map()
      * @param {typeof RUNNING | typeof CLOSING | typeof DISPOSED} [state] - The state of the sound manager. Default RUNNING
      */
     constructor(
@@ -76,7 +78,9 @@ export class SoundManager extends DisposableEventTarget {
          */
         public priorities: string[] = [],
         public promises: Map<string, Promise<AudioBuffer | null>> = new Map(),
+        public rpromises: Map<string, Promise<AudioBuffer | null>> = new Map(),
         public buffers: Map<string, AudioBuffer> = new Map(),
+        public reversed: Map<string, AudioBuffer> = new Map(),
         public state: typeof RUNNING | typeof CLOSING | typeof DISPOSED = RUNNING
     ) {
         super();
@@ -212,7 +216,7 @@ export class SoundManager extends DisposableEventTarget {
      */
     sourceNames(packageName: string = this.cpn, languages: string[] = [this.language]): string[] {
         if (this.state !== RUNNING) return [];
-        return this.getPackage(packageName).filter(item => languages.includes(item[LANG])).map(item => item[SOURCE]);
+        return [...new Set(this.getPackage(packageName).filter(item => languages.includes(item[LANG])).map(item => item[SOURCE]))];
     }
 
     /**
@@ -267,8 +271,33 @@ export class SoundManager extends DisposableEventTarget {
     async requestBufferAsync(name: string): Promise<AudioBuffer | null> {
         if (this.state !== RUNNING) return null;
         const file = this.getFileName(name);
-        if (!file) return null;
+        if (file === undefined) return null;
         return this.loadFile(file);
+    }
+
+    async requestBufferReversedAsync(name: string): Promise<AudioBuffer | null> {
+        if (this.state !== RUNNING) return null;
+        const file = this.getFileName(name);
+        if (file === undefined) return null;
+        const reversed = this.reversed.get(file);
+        if (reversed) return reversed;
+        const promise = this.rpromises.get(file)
+        if (promise) return promise
+        const loaded = this.loadFile(file).then(buffer => {
+            if (buffer) {
+                const target = this.context.createBuffer(
+                    buffer.numberOfChannels,
+                    buffer.length,
+                    buffer.sampleRate
+                )
+                fill(target, buffer);
+                this.reversed.set(file, target);
+                return target;
+            }
+            return null;
+        })
+        this.rpromises.set(file, loaded)
+        return loaded
     }
 
     /**
@@ -311,6 +340,33 @@ export class SoundManager extends DisposableEventTarget {
             this.context.sampleRate
         );
         this.buffers.set(file, silence);
+        this.loadItem(item)
+        return silence
+    }
+
+    requestBufferReversedSync(name: string): AudioBuffer | null {
+        if (this.state !== RUNNING) {
+            return null
+        }
+        const item = this.findItemBySourceName(name);
+        if (item === undefined) {
+            return null;
+        }
+        const file = item[FILE];
+        const buffer = this.buffers.get(file);
+        if (buffer !== undefined) {
+            return buffer;
+        }
+        const nc = this.numChannels(file);
+        if (nc === undefined) {
+            return null;
+        }
+        const silence = this.context.createBuffer(
+            nc,
+            item[NUMS],
+            this.context.sampleRate
+        );
+        this.reversed.set(file, silence);
         this.loadItem(item)
         return silence
     }
@@ -447,17 +503,17 @@ export class SoundManager extends DisposableEventTarget {
     async loadFile(file: string): Promise<AudioBuffer | null> {
         if (this.state !== RUNNING) {
             return null
-          }
-          const promise = this.promises.get(file)
-          if (promise !== undefined) {
+        }
+        const promise = this.promises.get(file)
+        if (promise !== undefined) {
             return promise
-          }
-          const item = this.findItemByFileName(file);
-          if (item === undefined) {
+        }
+        const item = this.findItemByFileName(file);
+        if (item === undefined) {
             this.dispatchEvent(new CustomEvent("soundloaderror", { detail: { file } }))
             return null;
-          }
-          return this.loadItem(item);
+        }
+        return this.loadItem(item);
     }
 
     /**
@@ -530,6 +586,21 @@ export class SoundManager extends DisposableEventTarget {
         await Promise.all(languages.map(language => this.loadLanguage(language, packageNames)))
     }
 
+    /**
+     * Load the the specified sound by original source name.
+     * @example
+     * const audioBuffer = await manager.loadSource("a")
+     */
+    async loadSource(source: string): Promise<AudioBuffer | null> {
+        if (this.state !== RUNNING) {
+            return null
+        }
+        const item = this.findItemBySourceName(source);
+        if (item === undefined) {
+            return null;
+        }
+        return this.loadItem(item);
+    }
 
     /**
      * Load the the specified sounds by original source name.
@@ -537,6 +608,9 @@ export class SoundManager extends DisposableEventTarget {
      * const audioBuffers = await manager.loadSources(["a", "b", "c"])
      */
     async loadSources(sources: readonly string[]): Promise<Array<AudioBuffer | null>> {
+        if (this.state !== RUNNING) {
+            return []
+        }
         const items = sources.map(source => this.findItemBySourceName(source)).filter(isDefined);
         return this.loadItems(items);
     }
