@@ -1,0 +1,19 @@
+{
+  "name": "smanager",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "author": "joel.lof@icloud.com",
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "0.20.1",
+    "typescript": "5.3.3"
+  },
+  "files": [
+    "src",
+    "dist",
+    "build.mjs"
+  ]
+}

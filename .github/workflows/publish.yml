@@ -1,0 +1,65 @@
+name: version
+
+on:
+  workflow_dispatch:
+    inputs:
+      type:
+        type: choice
+        required: true
+        default: 'alpha'
+        description: Which type of release
+        options:
+        - alpha
+        - patch
+        - minor
+        - major
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          registry-url: 'https://registry.npmjs.org'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Update version
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          VERSION="${{ github.event.inputs.type }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="alpha"
+          fi
+          if [ $VERSION = "alpha" ]; then
+            npm version prerelease --preid=alpha
+            npm publish --tag alpha
+          else
+            npm version $VERSION
+            npm publish --access=public --tag latest
+          fi
+          git push --follow-tags
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  pages:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.PAT_TOKEN }}
+    - uses: actions/setup-node@v4
+    - run: npm install && npm run build
+    - uses: actions/configure-pages@v4
+    - uses: actions/upload-pages-artifact@v3
+      with:
+        path: 'dist'
+    - uses: actions/deploy-pages@v4
+      id: deployment
