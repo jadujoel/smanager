@@ -5,22 +5,37 @@ import esbuild from 'esbuild'
 
 build()
 
-/**
- * Creates the output directory and compiles the specified TypeScript files.
- */
 async function build() {
   await fs.mkdir('dist', { recursive: true });
+  const files = [
+    'index',
+    'sound-manager',
+    'sound-promise'
+  ]
+  await Promise.all(files.map(one))
+  fs.copyFile('src/index.html', 'dist/index.html')
+}
+
+async function one(file) {
+  const promise = bundle(file)
   compile('index')
+  return promise
+}
+
+/**
+ * Creates the output directory and compiles the specified TypeScript files.
+ * @parma {string} file - The name of the file to compile (without extension).
+ */
+async function bundle(file) {
   esbuild.buildSync({
-    entryPoints: ['src/index.ts'],
+    entryPoints: [`src/${file}.ts`],
     bundle: true,
     minify: true,
-    outfile: 'dist/index.min.js',
+    outfile: `dist/${file}.min.js`,
     sourcemap: true,
     target: 'esnext',
     format: 'esm',
   })
-  fs.copyFile('src/index.html', 'dist/index.html')
 }
 
 /**
