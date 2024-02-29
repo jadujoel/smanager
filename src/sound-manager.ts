@@ -579,14 +579,18 @@ export class SoundManager extends DisposableEventTarget {
         const promise = SoundPromise.new(this.context)
         this.forward.set(file, promise);
         promise.value = buffer
+        this.dispatchEvent(new CustomEvent("loading", { detail: { file } }))
         promise.load(this.path + file + this.ext)
             .then(decoded => {
                 if (decoded === null) {
                     return buffer
                 }
                 fill(buffer!, decoded);
-                this.dispatchEvent(new CustomEvent("soundloaded", { detail: { file } }))
+                this.dispatchEvent(new CustomEvent("loaded", { detail: { file } }))
                 return buffer
+            }).catch(() => {
+                this.dispatchEvent(new CustomEvent("loaderror", { detail: { file } }))
+                return null
             })
         return promise;
     }
