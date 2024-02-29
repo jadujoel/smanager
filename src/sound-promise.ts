@@ -9,12 +9,21 @@ export class SoundPromise {
   state: SoundPromiseState;
   value: AudioBuffer | null = null
   public static State = {
-      UNLOADED: 0,
-      LOADING: 1,
-      LOADED: 2,
-      REJECTED: 3,
-      DISPOSED: 4
-  } as const
+    UNLOADED: 0,
+    LOADING: 1,
+    LOADED: 2,
+    REJECTED: 3,
+    DISPOSED: 4,
+    toString(state: SoundPromiseState): string {
+        return [
+          'UNLOADED',
+          'LOADING',
+          'LOADED',
+          'REJECTED',
+          'DISPOSED'
+        ][state]
+    }
+} as const
   promise: Promise<AudioBuffer | null>;
   readonly then: (onfulfilled?: ((value: AudioBuffer | null) => AudioBuffer | null | PromiseLike<AudioBuffer | null>)) => SoundPromise;
   readonly catch: (onrejected?: ((reason: Error) => AudioBuffer | PromiseLike<AudioBuffer> | null )) => SoundPromise;
