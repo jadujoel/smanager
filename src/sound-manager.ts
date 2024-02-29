@@ -579,7 +579,6 @@ export class SoundManager extends DisposableEventTarget {
         const promise = SoundPromise.new(this.context)
         this.forward.set(file, promise);
         promise.value = buffer
-        this.dispatchEvent(new CustomEvent("loading", { detail: { file } }))
         promise.load(this.path + file + this.ext)
             .then(decoded => {
                 if (decoded === null) {
@@ -592,6 +591,7 @@ export class SoundManager extends DisposableEventTarget {
                 this.dispatchEvent(new CustomEvent("loaderror", { detail: { file } }))
                 return null
             })
+        this.dispatchEvent(new CustomEvent("loading", { detail: { file } }))
         return promise;
     }
 
@@ -869,11 +869,23 @@ export function isDefined<T>(value: T | undefined): value is T {
  */
 export function fill(target: AudioBuffer, source: AudioBuffer): void {
     const nch = Math.min(target.numberOfChannels, source.numberOfChannels);
-    for (let ch = 0; ch < nch; ch++) {
-        const tch = target.getChannelData(ch);
-        const sch = source.getChannelData(ch);
-        tch.set(sch);
+    try {
+        for (let ch = 0; ch < nch; ch++) {
+            const tch = target.getChannelData(ch);
+            const sch = source.getChannelData(ch);
+            tch.set(sch, 0)
+        }
+    } catch {
+        const ns = Math.min(target.length, source.length);
+        for (let ch = 0; ch < nch; ch++) {
+            const tch = target.getChannelData(ch);
+            const sch = source.getChannelData(ch);
+            for (let i = 0; i < ns; i++) {
+                tch[i] = sch[i];
+            }
+        }
     }
+
 }
 
 
