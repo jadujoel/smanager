@@ -27,6 +27,9 @@ export type SoundDetails = {
     readonly duration: number;
     readonly numSamples: number;
     readonly numChannels: number;
+    readonly sourceName: string;
+    readonly fileName: string;
+    readonly bitrate: number;
 }
 
 // Extending EventTarget for disposable functionality
@@ -382,6 +385,15 @@ export class SoundManager extends DisposableEventTarget {
         return this.getUrlByFile(item[FILE])!;
     }
 
+    getFileByItem(item: SoundItem): string {
+        return item[FILE];
+    }
+
+    getFileBySource(sourceName: string): string | undefined {
+        const item = this.findItemBySourceName(sourceName);
+        return item ? item[FILE] : undefined;
+    }
+
     getNumSamplesByItem(item: SoundItem): number {
         return item[NUMS];
     }
@@ -423,6 +435,14 @@ export class SoundManager extends DisposableEventTarget {
         }
     }
 
+    getBitrateByFile(file: string): number | undefined {
+        try {
+            return Number(file.split(".")[0].replace("kb", ""));
+        } catch {
+            return undefined;
+        }
+    }
+
     getDurationByFile(file: string): number | undefined {
         const item = this.findItemByFileName(file)
         return item ? item[NUMS] / this.context.sampleRate : undefined;
@@ -446,7 +466,10 @@ export class SoundManager extends DisposableEventTarget {
             url: this.getUrlByFile(file)!,
             duration: this.getDurationByItem(item),
             numSamples: this.getNumSamplesByItem(item),
-            numChannels: this.getNumChannelsByFile(file)!
+            numChannels: this.getNumChannelsByFile(file)!,
+            sourceName: item[SOURCE],
+            fileName: item[FILE],
+            bitrate: this.getBitrateByFile(file)!
         }
     }
 
