@@ -445,7 +445,7 @@ export class SoundManager extends DisposableEventTarget {
             state: this.getLoadStateByFile(file),
             url: this.getUrlByFile(file)!,
             duration: this.getDurationByItem(item),
-            numSamples: this.getNumChannelsByItem(item),
+            numSamples: this.getNumSamplesByItem(item),
             numChannels: this.getNumChannelsByFile(file)!
         }
     }
@@ -857,7 +857,7 @@ export function fill(target: AudioBuffer, source: AudioBuffer): void {
  * @param priorities The list of source names defining the sort order.
  * @returns A new array of sound items sorted according to the priorities.
  */
-export function sort(items: SoundItem[], priorities: string[]): SoundItem[] {
+export function sort(items: SoundItem[], priorities: readonly string[]): SoundItem[] {
     // Create a map for quick lookup of priority index. Items not in priorities get a default index that sorts them to the end.
     const map: Map<string, number> = new Map(priorities.map((source, index) => [source, index]));
     const di = priorities.length; // Default index for items not found in priorities

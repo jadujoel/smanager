@@ -89,6 +89,8 @@ export class SoundPromise {
     return this
   }
 
+  [Symbol.toStringTag] = 'SoundPromise'
+
   static new(decoder?: Decoder) {
     return new SoundPromise(decoder)
   }
