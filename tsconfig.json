@@ -1,7 +1,39 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "strictNullChecks": true
-  }
+    // "target": "ESNext",
+    // "module": "ESNext",
+    // "moduleResolution": "Bundler",
+
+    "noPropertyAccessFromIndexSignature": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noErrorTruncation": true,
+    "noImplicitReturns": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "noImplicitThis": true,
+    "noImplicitAny": true,
+    "noEmitHelpers": true,
+    "noEmitOnError": true,
+    "allowSyntheticDefaultImports": true,
+    "exactOptionalPropertyTypes": false,
+    "allowArbitraryExtensions": false,
+    "noStrictGenericChecks": false,
+    "allowUnreachableCode": false,
+    "allowUmdGlobalAccess": true,
+    "noImplicitUseStrict": false,
+    "downlevelIteration": false,
+    "allowUnusedLabels": false,
+    "noResolve": false,
+    "allowJs": false,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    // "paths": {
+    //   "src/*": ["./src/*"],
+    //   "fixtures/*": ["./fixtures/*"]
+    // }
+  },
+  "include": ["src/*", "fixtures/mocks.ts"],
 }
