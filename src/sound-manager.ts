@@ -3,8 +3,7 @@ import { SoundPromise, type SoundPromiseState } from './sound-promise';
 export const NO_LANG = "_" as const;
 
 export const RUNNING = 0 as const;
-export const CLOSING = 1 as const;
-export const DISPOSED = 2 as const;
+export const DISPOSED = 1 as const;
 
 export const SOURCE = 0 as const;
 export const FILE = 1 as const;
@@ -13,11 +12,19 @@ export const LANG = 3 as const;
 
 export enum ManagerState {
     RUNNING,
-    CLOSING,
     DISPOSED,
 }
 
-export type SoundItem = readonly [string, string, number, string];
+/**
+ * @example
+ * const item = ["player_wins", "24kb.2ch.123456789", 96000, "english"]
+ */
+export type SoundItem = readonly [
+    source: string,
+    file: string,
+    numSamples: number,
+    language: string
+];
 export type Package = ReadonlyArray<SoundItem>;
 export type SoundAtlas = Record<string, Package>;
 
@@ -45,7 +52,7 @@ export class DisposableEventTarget extends EventTarget {
         super();
     }
 
-    addEventListener(
+    override addEventListener(
         type: string,
         callback: EventListenerOrEventListenerObject,
         options?: boolean | AddEventListenerOptions
@@ -62,35 +69,92 @@ export class DisposableEventTarget extends EventTarget {
     }
 }
 
+export type SoundManagerContext = Pick<AudioContext, 'decodeAudioData' | 'sampleRate' | 'createBuffer'>;
+
 export class SoundManager extends DisposableEventTarget {
-    /**
-     * @param {SoundAtlas} atlas - The sound atlas to use.
-     * @param {AudioContext} [context] - The audio context to use. Default new AudioContext({ sampleRate: 48000 })
-     * @param {string} [cpn] - The name of the package to use initially. Default "none"
-     * @param {string} [path] - The path to the sound files. Default "./encoded/"
-     * @param {string} [language] - The initial language to use. Default NO_LANG
-     * @param {".webm" | ".mp4"} [ext] - The extension of the sound files to use. Default ".webm"
-     * @param {readonly string[]} [priorities] - The load priorities. Default []
-     * @param {Map<string, SoundPromise>} [forward] - The promises of the sound files. Default new Map()
-     * @param {Map<string, SoundPromise>} [reversed] - The promises for the reversed buffers of the sound files. Default new Map()
-     * @param {typeof RUNNING | typeof CLOSING | typeof DISPOSED} [state] - The state of the sound manager. Default RUNNING
-     */
     constructor(
+        /**
+         * The audio context to use.
+         * Make sure you use sampleRate 48000 since the num samples
+         * In the atlas is based on that. And the webm opus codec is optimized for 48k.
+         * You may want to pass in your own context if you already have one
+         * That you are using outside of the manager.
+         * @default new AudioContext({ sampleRate: 48000 })
+         */
+        public context: SoundManagerContext = new AudioContext({ sampleRate: 48000 }),
+        /** The sound atlas to use see the npm package `@jadujoel/scode` to generate the atlas. */
         public atlas: SoundAtlas = {},
-        public context: AudioContext = new AudioContext({ sampleRate: 48000 }),
-        public cpn: string = "none",
-        public path: string = "./encoded/",
-        public language: string = NO_LANG,
-        public ext: ".webm" | ".mp4" = ".webm",
+        /**
+         * The path to the sound files.
+         * Where the sound files are located.
+         * The manager will try to load the sounds from inside this directory / url.
+         * @default `./encoded/`
+         * @example `https://example.com/sounds/`
+         */
+        public sourcePath: string = "./encoded/",
+        /**
+         * The names of the active packages to use initially.
+         * In the order that they should be prioritized.
+         * For example, if you have a common package for ui sounds, and then page specific sounds.
+         * You would use the page1 package as priority first, and then the page specific package.
+         * If anything in page1 is not found, it will look in the common package.
+         * If page1 and common have sounds with the same sourceNames, page1 will override the common package.
+         * When using getActiveSourceNames.
+         * @example
+         * manager.activePackages = ["page1", "common"]
+         * @default
+         * the packages in the atlas
+         * */
+        public readonly activePackageNames: string[] = Object.keys(atlas),
+        /**
+         * The initial languages to use.
+         * The order of the languages is the order of priority.
+         * It should really only be two or three items in here.
+         * The active language, the fallback language,
+         * and the non localized "language" such as effects and music.
+         * @default
+         * ["english", NO_LANG]
+         */
+        public readonly activeLanguages: string[] = ["english", NO_LANG],
+        /**
+         * The extension of the sound files to use.
+         * For iOS 14.3 and below, you should use `.mp4` for compatibility.
+         * For iOS 14.4 and above, you can use `.webm` for better sound quality to data ratio.
+         * @default `.webm`
+         */
+        public fileExtension: ".webm" | ".mp4" = ".webm",
         /**
          * In which order to load the sounds.
          * When using the load methods.
-         * @type {readonly string[]}
+         * This will load the sounds in the order specified.
+         * and the rest of the sounds in whatever order they are in the packages.
          */
         public priorities: string[] = [],
+        /**
+         * The promises of the decoded buffers of the sound files.
+         * you shouldnt need to use this, but it is exposed for debugging purposes.
+         */
         public forward: Map<string, SoundPromise> = new Map(),
+        /**
+         * The promises of the decoded buffers of the sound files.
+         * you shouldnt need to use this, but it is exposed for debugging purposes.
+         * The reversed buffers are used for playing the sounds in reverse.
+         * They will be created if `requestBufferReversed` is called.
+         * They will not be refetched if the sound is already loaded.
+         * But they will be copied in reverse from the forward buffer and stored in this map.
+         * Safari supports reverse playback of audio buffers with playBackRate -1.
+         * But the other browsers do not, so we need to create a reversed buffer.
+         */
         public reversed: Map<string, SoundPromise> = new Map(),
-        public state: typeof RUNNING | typeof CLOSING | typeof DISPOSED = RUNNING
+        /**
+         * The state of the sound manager.
+         * If the state is not RUNNING, the manager will not load any sounds.
+         * This is affected by the dispose method and the reload method.
+         * Again shouldnt need to use this, but it is exposed for testing purposes.
+         * @default
+         * RUNNING
+         */
+        public state: typeof RUNNING | typeof DISPOSED = RUNNING
     ) {
         super();
     }
@@ -98,12 +162,16 @@ export class SoundManager extends DisposableEventTarget {
     /**
      * Loads an atlas json file from a url.
      * @example
-     * manager.loadAtlas("https://example.com/sounds.atlas.json")
+     * manager.loadAtlas("https://example.com/sounds/.atlas.json")
      * manager.loadPackages()
-     * // Will load the sounds specified in "https://example.com/sounds.atlas.json"
+     * // Will load the sounds specified in "https://example.com/sounds/.atlas.json"
+     * @default
+     * `./encoded/.atlas.json`
      **/
-    async loadAtlas(url: string = `${this.path}${this.cpn}.atlas.json`): Promise<void> {
-        if (this.state !== RUNNING) return;
+    async loadAtlas(url: string = `${this.sourcePath}/.atlas.json`): Promise<void> {
+        if (this.state !== RUNNING) {
+            return
+        }
         const response = await fetch(url);
         const atlas: SoundAtlas = await response.json();
         this.atlas = atlas;
@@ -135,49 +203,76 @@ export class SoundManager extends DisposableEventTarget {
      * manager.addEventListener("languagechanged", () => {
      *   console.log("Language changed")
      * })
-     * const changed = manager.setLanguage("en")
+     * const changed = manager.setLanguage("swedish")
      * // changed === true
      * // "Language changed" will be logged
-     * manager.setLanguage("en") // false
+     * manager.setLanguage("swedish") // false
      */
     setLanguage(language: string): boolean {
-        if (this.state !== RUNNING) return false;
-        if (this.language === language) return false;
-        if (!this.getLanguages().includes(language)) return false;
-        this.language = language;
-        this.dispatchEvent(new Event('languagechanged'));
+        if (this.state !== RUNNING) {
+            return false;
+        }
+        if (this.activeLanguages[0] === language) {
+            return false;
+        }
+        if (!this.getLanguages().includes(language)) {
+            return false;
+        }
+        // remove it and the put it at the first position
+        const index = this.activeLanguages.indexOf(language);
+
+        // just add the language if it wasnt in the list
+        if (index === -1) {
+            this.activeLanguages.unshift(language);
+        } else {
+            // otherwise move it to the front
+            this.activeLanguages.splice(index, 1);
+            this.activeLanguages.unshift(language);
+        }
+        this.dispatchEvent(new CustomEvent('languagechanged', { detail: { language } }));
         return true;
     }
 
     /**
-     * Get the specified package or the current by default.
+     * Move the package to be first in the list of active packages.
+     * Prioritizing it over the other packages.
      * @example
      * const pkg = manager.getPackage()
      * // pkg === [["a", "24kb.2ch.12372919168763747631", 12372919168763747631, "en"], ...]
      */
-    setPackageByName(name: string): boolean {
-        if (this.state !== RUNNING || name === this.cpn) {
+    setPackageByName(packageName: string): boolean {
+        if (
+            this.state !== RUNNING ||
+            packageName === this.activePackageNames[0]
+        ) {
             return false;
         }
-        const pkg = this.atlas[name];
-        if (!pkg) {
-            console.debug("Package not found", name);
+        const pack = this.atlas[packageName];
+        if (pack === undefined) {
             return false;
         }
-        this.cpn = name;
-        this.dispatchEvent(new Event('packagechanged'));
+        const index = this.activePackageNames.indexOf(packageName);
+        if (index === -1) {
+            return false
+        } else {
+            // move the package to the front of the list
+            this.activePackageNames.splice(index, 1);
+            this.activePackageNames.unshift(packageName);
+        }
+        this.dispatchEvent(new CustomEvent('packagechanged', { detail: { packageName } }));
         return true;
     }
 
     /**
-     * Get the specified package or the current by default.
+     * Get the items in the specified package, or the first in the list of active packages by default.
+     * @default manager.activePackages[0]
      * @param {string} name
      * @returns {ReadonlyArray<readonly [string, string, number, string]>}
      * @example
      * const pkg = manager.getPackage()
      * // pkg === [["a", "24kb.2ch.12372919168763747631", 12372919168763747631, "en"], ...]
      */
-    getPackage(name: string = this.cpn): ReadonlyArray<SoundItem> {
+    getPackageItems(name: string = this.activePackageNames[0] ?? ""): ReadonlyArray<SoundItem> {
         if (this.state === DISPOSED) return [];
         return this.atlas[name] ?? [];
     }
@@ -191,12 +286,13 @@ export class SoundManager extends DisposableEventTarget {
      * const packages = manager.getPackages(["main", "localised"])
      * // packages === [[["a", "24kb.2ch.12372919168763747631", 12372919168763747631, "en"], ...], ...]
      */
-    getPackages(names?: readonly string[]): ReadonlyArray<Package> {
+    getPackages(names?: readonly string[]): Package[] {
         if (this.state === DISPOSED) return [];
-        if (names) {
-            return names.filter(name => this.atlas[name] !== undefined).map(name => this.getPackage(name));
-        }
-        return Object.values(this.atlas);
+        return names === undefined
+            ? Object.values(this.atlas)
+            : names
+                .filter(name => isDefined(this.atlas[name]))
+                .map(name => this.getPackageItems(name));
     }
 
     /**
@@ -216,18 +312,30 @@ export class SoundManager extends DisposableEventTarget {
     }
 
     /**
-     * Get the names of all the sounds in the selected package.
-     * With the selected languages.
-     * @param {string} packageName - The name of the package to use.
+     * Get the names of all the source names in the all the packages by default.
+     * With all the languages by default.
+     * Or in the select packages and languages if provided.
+     * @param {string} packageNames - The name of the package to use.
      * @param {string[]} languages - The languages to use, default current language.
      * @returns {string[]}
      * @example
      * const names = manager.names()
      * // names === ["a", "b", "c"]
      */
-    getSourceNames(packageName: string = this.cpn, languages: string[] = [this.language]): string[] {
+    getSourceNames(
+        packageNames: readonly string[] = this.getPackageNames(),
+        languages: readonly string[] = this.getLanguages()
+    ): string[] {
         if (this.state !== RUNNING) return [];
-        return [...new Set(this.getPackage(packageName).filter(item => languages.includes(item[LANG])).map(item => item[SOURCE]))];
+        const sourceNames: string[] = []
+        for (const pack of this.getPackages(packageNames)) {
+            for (const item of pack) {
+                if (languages.includes(item[LANG])) {
+                    sourceNames.push(item[SOURCE]);
+                }
+            }
+        }
+        return unique(sourceNames);
     }
 
     /**
@@ -236,39 +344,58 @@ export class SoundManager extends DisposableEventTarget {
      * Or the current package and no language.
      */
     getActiveSourceNames(): string[] {
-        return this.getSourceNames(this.cpn, [this.language, NO_LANG])
+        return this.getSourceNames(
+            this.activePackageNames,
+            this.activeLanguages
+    )
     }
 
     /**
      * Get the path to the sound file.
      */
     getSourceUrl(sourceName: string): string | undefined {
-        if (this.state !== RUNNING) return undefined;
+        if (this.state !== RUNNING) {
+            return undefined;
+        }
         const item = this.findItemBySourceName(sourceName);
-        if (item === undefined) return undefined;
-        return this.path + item[FILE] + this.ext;
+        if (item === undefined) {
+            return undefined;
+        }
+        return `${this.sourcePath}/${item[FILE]}${this.fileExtension}`;
     }
 
     getSourceNumSamples(sourceName: string): number | undefined {
-        if (this.state !== RUNNING) return undefined;
+        if (this.state !== RUNNING) {
+            return undefined;
+        }
         const item = this.findItemBySourceName(sourceName);
         return item ? item[NUMS] : undefined;
     }
 
     getSourceNumChannels(sourceName: string): number | undefined {
-        if (this.state !== RUNNING) return undefined;
+        if (this.state !== RUNNING) {
+            return undefined;
+        }
         const item = this.findItemBySourceName(sourceName);
-        return item ? this.getNumChannelsByFile(item[FILE]) : undefined;
+        if (item === undefined) {
+            return undefined;
+        }
+        return this.getNumChannelsByFile(item[FILE]);
     }
 
     getSourceDuration(sourceName: string): number | undefined {
-        if (this.state !== RUNNING) return undefined;
+        if (this.state !== RUNNING) {
+            return undefined;
+        }
         const item = this.findItemBySourceName(sourceName);
-        return item ? item[NUMS] / this.context.sampleRate : undefined;
+        if (item === undefined) {
+            return undefined;
+        }
+        return item[NUMS] / this.context.sampleRate
     }
 
     /**
-     * Get a unique list of languages available in the selected package (default current package).
+     * Get a unique list of languages available in the selected packages (default all packages).
      * @returns {string[]}
      * @example
      * const languages = manager.languages()
@@ -277,22 +404,37 @@ export class SoundManager extends DisposableEventTarget {
      * const languages = manager.languages("another_package")
      * // languages === ["en", "sv"]
      */
-    getLanguages(name: string = this.cpn): string[] {
-        if (this.state !== RUNNING) return [];
-        return [...new Set(this.getPackage(name).map(item => item[LANG]))];
+    getLanguages(
+        packageNames: readonly string[] = this.getPackageNames()
+    ): string[] {
+        if (this.state !== RUNNING) {
+            return [];
+        }
+        const languages: string[] = []
+        for (const pack of this.getPackages(packageNames)) {
+            for (const item of pack) {
+                const lang = item[LANG];
+                if (!languages.includes(lang)) {
+                    languages.push(lang);
+                }
+            }
+        }
+        return languages;
     }
 
 
     /**
-     * Set the path to the sound files.
+     * Set the load path of the sound files.
      * @example
      * manager.setLoadPath("https://example.com/sounds/")
      * manager.loadPackageName()
      * // Will load the sounds from "https://example.com/sounds/" base, instead of the default "./encoded/".
      */
     setLoadPath(path: string): void {
-        if (this.state !== RUNNING) return;
-        this.path = path;
+        if (this.state !== RUNNING) {
+            return;
+        }
+        this.sourcePath = path;
         this.dispatchEvent(new Event('loadpathchange'));
     }
 
@@ -304,8 +446,8 @@ export class SoundManager extends DisposableEventTarget {
      * // Will load "a" first, then "b", then "c"
      * // then the rest of the sounds in the package
      */
-    setPriorityList(sources: string[]): void {
-        this.priorities = sources;
+    setPriorityList(sourceNames: readonly string[]): void {
+        this.priorities = [...sourceNames];
     }
 
     /**
@@ -326,6 +468,7 @@ export class SoundManager extends DisposableEventTarget {
 
     requestBufferReversedAsync(sourceName: string): SoundPromise {
         const item = this.findItemBySourceName(sourceName);
+        console.log('item', item)
         if (item === undefined) {
             return SoundPromise.from(null);
         }
@@ -334,16 +477,19 @@ export class SoundManager extends DisposableEventTarget {
             return this.reversed.get(file)!;
         }
         const forward = this.loadItem(item)
+        console.log('forward.value')
         if (forward.value === null) {
             // no need to waste resources creating a new promise
             this.reversed.set(file, forward)
             return forward
         }
+        console.log('creating buffer')
         const buffer = this.context.createBuffer(
             forward.value.numberOfChannels,
             forward.value.length,
             forward.value.sampleRate
         )
+        console.log('creating reversed promise')
         const reversed = SoundPromise.new(this.context)
         reversed.value = buffer
         forward.then(decoded => {
@@ -352,7 +498,11 @@ export class SoundManager extends DisposableEventTarget {
                 return buffer;
             }
             return null;
+        }).then(buffer => {
+            reversed.resolve(buffer)
+            return buffer
         })
+        console.log('returning reversed')
         return reversed
     }
 
@@ -428,16 +578,28 @@ export class SoundManager extends DisposableEventTarget {
      * // numChannels === 2
      */
     getNumChannelsByFile(file: string): number | undefined {
+        const splat = file.split(".")
+        const ch = splat[1]
+        if (ch === undefined) {
+            return undefined
+        }
+        const nstr = ch.replace("ch", "")
         try {
-            return Number(file.split(".")[1].replace("ch", ""));
+            return Number(nstr);
         } catch {
             return undefined;
         }
     }
 
     getBitrateByFile(file: string): number | undefined {
+        const splat = file.split(".")
+        const br = splat[1]
+        if (br === undefined) {
+            return undefined
+        }
+        const nstr = br.replace("kb", "")
         try {
-            return Number(file.split(".")[0].replace("kb", ""));
+            return Number(nstr);
         } catch {
             return undefined;
         }
@@ -452,8 +614,8 @@ export class SoundManager extends DisposableEventTarget {
         return this.forward.get(file)?.state ?? SoundPromise.State.UNLOADED;
     }
 
-    getUrlByFile(file: string): string | undefined {
-        return this.path + file + this.ext;
+    getUrlByFile(file: string): string {
+        return `${this.sourcePath}/${file}${this.fileExtension}`;
     }
 
     getDetailsByFile(file: string): SoundDetails | undefined {
@@ -489,7 +651,7 @@ export class SoundManager extends DisposableEventTarget {
     }
 
     getLoadStateBySource(sourceName: string): SoundPromiseState | undefined {
-        const file = this.getFileName(sourceName);
+        const file = this.getFileNameBySourceName(sourceName);
         if (file === undefined) {
             return
         }
@@ -497,7 +659,7 @@ export class SoundManager extends DisposableEventTarget {
     }
 
     getDetailsBySource(sourceName: string): SoundDetails | undefined {
-        const file = this.getFileName(sourceName);
+        const file = this.getFileNameBySourceName(sourceName);
         if (file === undefined) {
             return
         }
@@ -505,15 +667,13 @@ export class SoundManager extends DisposableEventTarget {
     }
 
     getUrlBySource(sourceName: string): string | undefined {
-        const file = this.getFileName(sourceName);
+        const file = this.getFileNameBySourceName(sourceName);
         return file && this.getUrlByFile(file);
     }
 
     /**
      * Will return the sound item if it exists in the package with the current language or if it has no language assigned.
      * If it does not exist, it will return undefined.
-     * We put arr[LANG] === NO_LANG first in the condition because we want to allow sounds with no language to be played.
-     * And most packages are not localized, so we want to allow them to be played.
      * @param {string} sourceName - the name of the sound to get.
      * @param {string | undefined} - The name of package to search in.
      * @param {string | undefined} - The name of package to search in.
@@ -521,9 +681,14 @@ export class SoundManager extends DisposableEventTarget {
      * const item = manager.findItemBySourceName("main_music")
      * // item === ["main_music", "24kb.2ch.12372919168763747631", 12372919168763747631, "en"]
      */
-    findItemBySourceName(sourceName: string, packageName: string = this.cpn, language: string = this.language): SoundItem | undefined {
+    findItemBySourceName(sourceName: string, packageNames: readonly string[] = this.activePackageNames, languages: readonly string[] = this.activeLanguages): SoundItem | undefined {
         if (this.state !== RUNNING) return undefined;
-        return this.getPackage(packageName).find(item => item[SOURCE] === sourceName && (item[LANG] === NO_LANG || item[LANG] === language));
+        return packageNames
+            .map(name => this.getPackageItems(name))
+            .flat()
+            .find(item =>
+                item[SOURCE] === sourceName && languages.includes(item[LANG])
+            );
     }
 
     /**
@@ -538,9 +703,12 @@ export class SoundManager extends DisposableEventTarget {
      * const item = manager.findItemByFilename("24kb.2ch.12372919168763747631")
      * // item === ["main_music", "24kb.2ch.12372919168763747631", 12372919168763747631, "en"]
      */
-    findItemByFileName(fileName: string, packageName: string = this.cpn): SoundItem | undefined {
+    findItemByFileName(fileName: string, packageNames: string[] = this.activePackageNames): SoundItem | undefined {
         if (this.state !== RUNNING) return undefined;
-        return this.getPackage(packageName).find(item => item[FILE] === fileName);
+        return packageNames
+            .map(name => this.getPackageItems(name))
+            .flat()
+            .find(item => item[FILE] === fileName);
     }
 
     /**
@@ -553,9 +721,15 @@ export class SoundManager extends DisposableEventTarget {
      * const file = manager.getFileName("main_music")
      * // file === "24kb.2ch.12372919168763747631"
      */
-    getFileName(sourceName: string, packageName: string = this.cpn, language: string = this.language): string | undefined {
-        if (this.state !== RUNNING) return undefined;
-        const item = this.findItemBySourceName(sourceName, packageName, language);
+    getFileNameBySourceName(
+        sourceName: string,
+        packageNames: readonly string[] =
+        this.activePackageNames, languages: readonly string[] = this.activeLanguages
+    ): string | undefined {
+        if (this.state !== RUNNING) {
+            return undefined;
+        }
+        const item = this.findItemBySourceName(sourceName, packageNames, languages);
         return item ? item[FILE] : undefined;
     }
 
@@ -579,7 +753,8 @@ export class SoundManager extends DisposableEventTarget {
         const promise = SoundPromise.new(this.context)
         this.forward.set(file, promise);
         promise.value = buffer
-        promise.load(this.path + file + this.ext)
+        const url = this.getUrlByFile(file)
+        promise.load(url)
             .then(decoded => {
                 if (decoded === null) {
                     return buffer
@@ -626,6 +801,7 @@ export class SoundManager extends DisposableEventTarget {
             this.dispatchEvent(new CustomEvent("soundloaderror", { detail: { file } }))
             return SoundPromise.from(null);
         }
+        console.log('load file', file, item)
         return this.loadItem(item);
     }
 
@@ -633,11 +809,11 @@ export class SoundManager extends DisposableEventTarget {
      * Load all sounds in a specified package.
      * Including all languages.
      */
-    async loadPackageName(name = this.cpn): Promise<Array<AudioBuffer | null>> {
+    async loadPackageName(name = this.activePackageNames[0]): Promise<Array<AudioBuffer | null>> {
         if (this.state !== RUNNING) {
             return []
         }
-        return this.loadItems(this.getPackage(name));
+        return this.loadItems(this.getPackageItems(name));
     }
 
     /**
@@ -645,11 +821,11 @@ export class SoundManager extends DisposableEventTarget {
      * Including all languages.
      * @parmam {string[]} names - The names of the packages to load.
      */
-    async loadPackageNames(names = undefined): Promise<Array<AudioBuffer | null>> {
+    async loadPackageNames(packageNames?: readonly string[]): Promise<Array<AudioBuffer | null>> {
         if (this.state !== RUNNING) {
             return []
         }
-        return Promise.all(this.getPackageNames(names)
+        return Promise.all(this.getPackageNames(packageNames)
             .map(name => this.loadPackageName(name)))
             .then(promises => promises.flat())
     }
@@ -659,10 +835,10 @@ export class SoundManager extends DisposableEventTarget {
      * all languages, everything.
      */
     async loadEverything(): Promise<Array<AudioBuffer | null>>{
-        if (this.state === RUNNING) {
-            return this.loadPackageNames()
+        if (this.state !== RUNNING) {
+            return []
         }
-        return []
+        return this.loadPackageNames(this.getPackageNames())
     }
 
     /**
@@ -671,7 +847,7 @@ export class SoundManager extends DisposableEventTarget {
      * @example
      * await manager.loadLanguage("en", ["package1", "package2"])
      */
-    async loadLanguage(language = this.language, packageNames = [this.cpn]): Promise<void> {
+    async loadLanguage(language = this.activeLanguages[0], packageNames = this.activePackageNames): Promise<void> {
         if (this.state === RUNNING) {
             await Promise.all(
                 this.getPackages(packageNames)
@@ -690,13 +866,17 @@ export class SoundManager extends DisposableEventTarget {
      * @param {string[]} packageNames
      */
     async loadLanguages(
-        languages = [this.language],
-        packageNames = [this.cpn]
+        languages = this.activeLanguages,
+        packageNames = this.activePackageNames
     ): Promise<void> {
         if (this.state !== RUNNING) {
             return
         }
-        await Promise.all(languages.map(language => this.loadLanguage(language, packageNames)))
+        await Promise.all(
+            languages.map(
+                language => this.loadLanguage(language, packageNames)
+            )
+        )
     }
 
     /**
@@ -766,25 +946,25 @@ export class SoundManager extends DisposableEventTarget {
 
     /**
      * Dispose of all the sounds in the specified package.
-     * @param {string} name, or undefined to dispose of the current package.
+     * @param {string} packageName, or undefined to dispose of the current package.
      */
-    disposePackage(name = this.cpn): void {
+    disposePackage(packageName = this.activePackageNames[0]): void {
         if (this.state === DISPOSED) {
             return
         }
-        const items = this.getPackage(name);
-        items.map(item => this.disposeItem(item));
+        this.getPackageItems(packageName)
+            .map(item => this.disposeItem(item));
     }
 
     /**
      * Dispose of all the sounds in the specified packages.
-     * @param {string[] | undefined} names, or undefined to dispose of all packages.
+     * @param {string[] | undefined} packageNames, or undefined to dispose of all packages.
      */
-    disposePackages(names = undefined): void {
+    disposePackages(packageNames = this.getPackageNames()): void {
         if (this.state === DISPOSED) {
             return
         }
-        for (const pack of this.getPackages(names)) {
+        for (const pack of this.getPackages(packageNames)) {
             for (const item of pack) {
                 this.disposeItem(item)
             }
@@ -798,7 +978,10 @@ export class SoundManager extends DisposableEventTarget {
      * @param {string[]} packageNames
      * @returns {Promise<void>}
      */
-    disposeLanguage(language = this.language, packageNames = undefined): void {
+    disposeLanguage(
+        language = this.activeLanguages[0],
+        packageNames = this.getPackageNames()
+    ): void {
         if (this.state === DISPOSED) {
             return
         }
@@ -815,12 +998,12 @@ export class SoundManager extends DisposableEventTarget {
      * Dispose the sound manager
      * @param {boolean | undefined} disposeListeners - If true, it will dispose of all the listeners attached.
      */
-    dispose(disposeListeners: boolean = true): void {
+    override dispose(disposeListeners: boolean = true): void {
         if (this.state === DISPOSED) return;
         if (disposeListeners) {
             super.dispose();
         }
-        this.disposePackages()
+        this.disposePackages(this.getPackageNames())
         this.state = DISPOSED
     }
 
@@ -871,21 +1054,16 @@ export function fill(target: AudioBuffer, source: AudioBuffer): void {
     const nch = Math.min(target.numberOfChannels, source.numberOfChannels);
     try {
         for (let ch = 0; ch < nch; ch++) {
-            const tch = target.getChannelData(ch);
-            const sch = source.getChannelData(ch);
-            tch.set(sch, 0)
+            source.copyFromChannel(target.getChannelData(ch), ch)
         }
     } catch {
         const ns = Math.min(target.length, source.length);
         for (let ch = 0; ch < nch; ch++) {
             const tch = target.getChannelData(ch);
             const sch = source.getChannelData(ch);
-            for (let i = 0; i < ns; i++) {
-                tch[i] = sch[i];
-            }
+            tch.set(sch.subarray(0, ns), 0)
         }
     }
-
 }
 
 
@@ -907,4 +1085,13 @@ export function sort(items: SoundItem[], priorities: readonly string[]): SoundIt
         const ib = map.get(b[0]) ?? di;
         return ia - ib;
     });
+}
+
+/** efficient filter of unique items in a string array */
+export function unique(arr: readonly string[]): string[] {
+    const map: Record<string, boolean> = {};
+    for (const item of arr) {
+        map[item] = true;
+    }
+    return Object.keys(map);
 }

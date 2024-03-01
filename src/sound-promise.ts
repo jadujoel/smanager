@@ -4,24 +4,26 @@ export function isAudioBuffer(thing: unknown): thing is AudioBuffer {
 
 export type Decoder = Pick<AudioContext, 'decodeAudioData'>;
 export type SoundPromiseState = 0 | 1 | 2 | 3 | 4;
+export type SoundPromiseStateName = 'UNLOADED' | 'LOADING' | 'LOADED' | 'REJECTED' | 'DISPOSED';
 
 export class SoundPromise {
   state: SoundPromiseState;
   value: AudioBuffer | null = null
+  public static StateNames = [
+    'UNLOADED',
+    'LOADING',
+    'LOADED',
+    'REJECTED',
+    'DISPOSED'
+  ] as const
   public static State = {
     UNLOADED: 0,
     LOADING: 1,
     LOADED: 2,
     REJECTED: 3,
     DISPOSED: 4,
-    toString(state: SoundPromiseState): string {
-        return [
-          'UNLOADED',
-          'LOADING',
-          'LOADED',
-          'REJECTED',
-          'DISPOSED'
-        ][state]
+    toString(state: SoundPromiseState): SoundPromiseStateName {
+        return SoundPromise.StateNames[state]
     }
 } as const
   promise: Promise<AudioBuffer | null>;
