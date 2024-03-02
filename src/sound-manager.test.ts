@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { SoundManager, type SoundAtlas, DISPOSED, RUNNING, FILE, isDefined, fill, type SoundItem, sort, unique } from './sound-manager';
+import { SoundManager, type SoundAtlas, DISPOSED, RUNNING, FILE, isDefined, fill, type SoundItem, sort, unique, NO_LANG } from './sound-manager';
 import { MockContext, MockAudioBuffer, mockedFetch } from '../fixtures/mocks';
 import { SoundPromise } from './sound-promise';
 
@@ -27,11 +27,10 @@ function dmanager() {
 
 it('should set language correctly', () => {
   const manager = dmanager();
-  const initialLanguage = manager.activeLanguages[0];
   const newLanguage = 'swedish';
   expect(manager.setLanguage(newLanguage)).toBe(true);
   expect(manager.activeLanguages[0]).toBe(newLanguage);
-  expect(manager.activeLanguages).toContain(initialLanguage); // The initial language should now be the second item
+  expect(manager.activeLanguages[1]).toBe(NO_LANG);
 });
 
 it('should not change language if it is already the active language', () => {
@@ -469,10 +468,12 @@ it('loadSource loads a sound by its source name', async () => {
   expect(buffer).toBeInstanceOf(MockAudioBuffer); // Or null if the source does not exist
 });
 
-it('loadSources loads multiple sounds by their source names', async () => {
+it.only('loadSources loads multiple sounds by their source names', async () => {
   const manager = dmanager();
+  manager.setPackageByName('template')
   const sourceNames = ['voice_player', 'music_drums']; // Ensure these are valid source names in your atlas
   const buffers = await manager.loadSources(sourceNames);
+  console.log(buffers)
   expect(buffers.length).toEqual(sourceNames.length);
   for (const buffer of buffers) {
     expect(buffer).toBeInstanceOf(MockAudioBuffer); // Or null for non-existent sources

@@ -210,17 +210,9 @@ export class SoundManager extends TypedEventTarget<SoundManagerEvents, string> {
         if (!this.getLanguages().includes(language)) {
             return false;
         }
-        // remove it and the put it at the first position
-        const index = this.activeLanguages.indexOf(language);
-
-        // just add the language if it wasnt in the list
-        if (index === -1) {
-            this.activeLanguages.unshift(language);
-        } else {
-            // otherwise move it to the front
-            this.activeLanguages.splice(index, 1);
-            this.activeLanguages.unshift(language);
-        }
+        // remove all languages and add the new one
+        this.activeLanguages.splice(0, this.activeLanguages.length)
+        this.activeLanguages.push(language, NO_LANG)
         this.dispatchEvent({ type: 'languagechanged', detail: language });
         return true;
     }
@@ -676,13 +668,41 @@ export class SoundManager extends TypedEventTarget<SoundManagerEvents, string> {
      * const item = manager.findItemBySourceName("main_music")
      * // item === ["main_music", "24kb.2ch.12372919168763747631", 12372919168763747631, "en"]
      */
-    findItemBySourceName(sourceName: string, packageNames: readonly string[] = this.activePackageNames, languages: readonly string[] = this.activeLanguages): SoundItem | undefined {
-        if (this.state !== RUNNING) return undefined;
-        return packageNames
-            .flatMap(name => this.getPackageItems(name))
-            .find(item =>
-                item[SOURCE] === sourceName && languages.includes(item[LANG])
-            );
+    findItemBySourceName(
+        sourceName: string,
+        packageNames: readonly string[] = this.activePackageNames,
+        languages: readonly string[] = this.activeLanguages
+    ): SoundItem | undefined {
+        if (this.state !== RUNNING) {
+            return undefined;
+        }
+        // this below should maybe be prepared earlier
+        // so we can instantle get the correct item from a map
+        for (const packageName of packageNames) {
+            // try to find in the main language
+            const items = this.getPackageItems(packageName)
+            const lang = languages[0]
+            const map = new Map<string, SoundItem>()
+            for (const item of items) {
+                if (item[SOURCE] === sourceName) {
+                    if (item[LANG] === lang) {
+                        return item
+                    } else {
+                        map.set(item[LANG], item)
+                    }
+                }
+            }
+            // otherwise check in the others
+            if (map.size > 0) {
+                for (const lang of languages.slice(1)) {
+                    const item = map.get(lang)
+                    if (item !== undefined) {
+                        return item
+                    }
+                }
+            }
+        }
+        return undefined;
     }
 
     /**
@@ -774,7 +794,7 @@ export class SoundManager extends TypedEventTarget<SoundManagerEvents, string> {
                 return buffer
             }).catch(() => {
                 this.dispatchEvent({ type: "fileloaderror", detail: file })
-                return
+                return null
             })
         this.dispatchEvent({ type: "fileloading", detail: file })
         return promise;
@@ -913,8 +933,8 @@ export class SoundManager extends TypedEventTarget<SoundManagerEvents, string> {
         if (this.state !== RUNNING) {
             return []
         }
-        const items = sources.map(source => this.findItemBySourceName(source)).filter(isDefined);
-        return this.loadItems(items);
+        const items = sources.map(source => this.findItemBySourceName(source));
+        return this.loadItems(items.filter(isDefined));
     }
 
     /**
