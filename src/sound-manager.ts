@@ -727,6 +727,23 @@ export class SoundManager extends TypedEventTarget<SoundManagerEvents, string> {
     }
 
     /**
+     * Load a sound file from a specific url.
+     */
+    loadUrl(url: string): SoundPromise {
+        if (this.state !== RUNNING) {
+            return SoundPromise.from(null)
+        }
+        const existing = this.forward.get(url)
+        if (existing !== undefined) {
+            return existing
+        }
+        const promise = SoundPromise.new(this.context)
+        this.forward.set(url, promise)
+        promise.load(url)
+        return promise
+    }
+
+    /**
      * Load a sound file given the atlas item.
      */
     loadItem(item: SoundItem): SoundPromise {
