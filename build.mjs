@@ -1,4 +1,4 @@
-import fs from 'fs/promises';
+import fs from 'node:fs/promises';
 
 import typescript from 'typescript';
 import esbuild from 'esbuild'
@@ -57,7 +57,7 @@ function compile(name) {
   });
 
   const result = program.emit();
-  const diagnostics = typescript.getPreEmitDiagnostics(program).concat(result.diagnostics);
+  const diagnostics = [...typescript.getPreEmitDiagnostics(program), ...result.diagnostics];
   const logs = diagnostics.map(diagnostic => {
     if (diagnostic.file) {
       const { line, character } = typescript.getLineAndCharacterOfPosition(diagnostic.file, diagnostic.start);

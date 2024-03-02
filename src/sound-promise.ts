@@ -1,5 +1,5 @@
 export function isAudioBuffer(thing: unknown): thing is AudioBuffer {
-  return (thing as any)?.name === "AudioBuffer"
+  return Boolean(thing) && (thing as { name?: string }).name === "AudioBuffer"
 }
 
 export type Decoder = Pick<AudioContext, 'decodeAudioData'>;
@@ -7,8 +7,6 @@ export type SoundPromiseState = 0 | 1 | 2 | 3 | 4;
 export type SoundPromiseStateName = 'UNLOADED' | 'LOADING' | 'LOADED' | 'REJECTED' | 'DISPOSED';
 
 export class SoundPromise {
-  state: SoundPromiseState;
-  value: AudioBuffer | null = null
   public static StateNames = [
     'UNLOADED',
     'LOADING',
@@ -25,98 +23,88 @@ export class SoundPromise {
     toString(state: SoundPromiseState): SoundPromiseStateName {
         return SoundPromise.StateNames[state]
     }
-} as const
-  promise: Promise<AudioBuffer | null>;
-  readonly then: (onfulfilled?: ((value: AudioBuffer | null) => AudioBuffer | null | PromiseLike<AudioBuffer | null>)) => SoundPromise;
-  readonly catch: (onrejected?: ((reason: Error) => AudioBuffer | PromiseLike<AudioBuffer> | null )) => SoundPromise;
-  readonly finally: (onfinally?: (() => void)) => SoundPromise;
+  } as const
+  readonly name = 'SoundPromise' as const
+  readonly [Symbol.toStringTag] = 'SoundPromise' as const
+
+  state: SoundPromiseState;
+  value: AudioBuffer | null = null;
+  readonly internal: Promise<AudioBuffer | null>;
+
   resolve: (value: AudioBuffer | null) => void;
   reject: (reason: Error) => void;
+
   constructor(public readonly decoder?: Decoder) {
       this.state = SoundPromise.State.UNLOADED;
-      this.promise = new Promise((resolve, reject) => {
-          this.resolve = resolve;
-          this.reject = reject;
-      })
-      this.then = (onfulfilled) => {
-        // Create a new SoundPromise for chaining
-        const chained = SoundPromise.new(this.decoder);
-        // Setup the continuation of the promise chain within the new SoundPromise
-        chained.promise = this.promise.then(value => {
-          this.value = value;
-          this.state = SoundPromise.State.LOADED;
-          // Ensure onfulfilled returns a value or null
-          return onfulfilled ? onfulfilled(value) : value;
-        }).then(result => result !== undefined ? result : null); // Ensure the chain resolves to AudioBuffer | null
-
-        // Return the new SoundPromise for further chaining
-        return chained;
-      }
-      this.catch = (onrejected) => {
-        const chained = new SoundPromise(this.decoder);
-        chained.promise = this.promise.catch(reason => {
-          this.state = SoundPromise.State.REJECTED;
-          if (onrejected) {
-            return onrejected(reason);
-          }
-          throw reason; // Important to re-throw if no handler is provided
-        }).then(result => result !== undefined ? result : null);
-        return chained;
-      }
-
-      this.finally = (onfinally) => {
-        const chained = SoundPromise.new(this.decoder);
-        chained.promise = this.promise.finally(() => {
-          if (onfinally) {
-            onfinally();
-          }
-        }).then(() => this.value); // Pass the current value to the next in chain
-        return chained;
-      }
+      this.internal = new Promise<AudioBuffer | null>((resolve, reject) => {
+          this.resolve = (value: AudioBuffer | null) => {
+              this.state = value === null ? SoundPromise.State.REJECTED : SoundPromise.State.LOADED;
+              this.value = value;
+              resolve(value);
+          };
+          this.reject = (reason: Error) => {
+              this.state = SoundPromise.State.REJECTED;
+              this.value = null;
+              reject(reason);
+          };
+      });
   }
+
+  then<TResult1 = AudioBuffer | null, TResult2 = never>(
+      onfulfilled?: ((value: AudioBuffer | null) => TResult1 | PromiseLike<TResult1>) | null,
+      onrejected?: ((reason: Error) => TResult2 | PromiseLike<TResult2>) | null
+  ): Promise<TResult1 | TResult2> {
+      return this.internal.then(onfulfilled, onrejected);
+  }
+
+  catch<TResult = never>(
+      onrejected?: ((reason: Error) => TResult | PromiseLike<TResult>) | null
+    ): Promise<AudioBuffer | null | TResult> {
+      return this.internal.catch(onrejected);
+  }
+
+  finally(onfinally?: (() => void) | undefined): Promise<AudioBuffer | null> {
+    return this.internal.finally(onfinally);
+  }
+
   load(url: string): SoundPromise {
-    if (this.state !== SoundPromise.State.UNLOADED) {
-      return this
-    }
-    if (this.decoder !== undefined) {
-      this.state = SoundPromise.State.LOADING
-      fetch(url)
-          .then(response => response.arrayBuffer())
-          .then(buffer => this.decoder!.decodeAudioData(buffer))
-          .then(decoded => this.resolve(decoded))
-          .catch(error => this.reject(new Error(`Failed to load audio from ${url} with error: ${error?.message}`)))
-    } else {
-      this.reject(new Error('Decoder is not available'))
-    }
-    return this
+      if (this.state !== SoundPromise.State.UNLOADED) {
+          return this;
+      }
+      if (this.decoder) {
+          this.state = SoundPromise.State.LOADING;
+          fetch(url)
+              .then(response => response.arrayBuffer())
+              .then(buffer => this.decoder!.decodeAudioData(buffer))
+              .then(decoded => this.resolve(decoded))
+              .catch(error => this.reject(new Error(`Failed to load audio from ${url} with error: ${error.message}`)));
+      } else {
+          this.reject(new Error('Decoder is not available'));
+      }
+      return this;
   }
 
-  dispose(): this {
-    if (this.state === SoundPromise.State.DISPOSED) {
-      return this
-    }
-    this.resolve(null)
-    this.state = SoundPromise.State.DISPOSED
-    return this
+  dispose(): SoundPromise {
+      if (this.state !== SoundPromise.State.DISPOSED) {
+          this.resolve(null);
+          this.state = SoundPromise.State.DISPOSED;
+      }
+      return this;
   }
 
-  [Symbol.toStringTag] = 'SoundPromise'
-
-  static new(decoder?: Decoder) {
-    return new SoundPromise(decoder)
+  static new(decoder?: Decoder): SoundPromise {
+      return new SoundPromise(decoder);
   }
 
   static from(value: string | null | AudioBuffer, decoder?: Decoder): SoundPromise {
-    if (value === null) {
-      const sound = SoundPromise.new()
-      sound.resolve(null)
-      return sound
-    }
-    if (isAudioBuffer(value)) {
-      const sound = SoundPromise.new()
-      sound.resolve(value)
-      return sound
-    }
-    return SoundPromise.new(decoder).load(value)
+      const promise = SoundPromise.new(decoder);
+      if (value === null) {
+          promise.resolve(null);
+      } else if (isAudioBuffer(value)) {
+          promise.resolve(value);
+      } else {
+          promise.load(value);
+      }
+      return promise;
   }
 }

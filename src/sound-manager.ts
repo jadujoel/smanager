@@ -1,4 +1,5 @@
 import { SoundPromise, type SoundPromiseState } from './sound-promise';
+import { TypedEventTarget } from './event-target';
 
 export const NO_LANG = "_" as const;
 
@@ -25,7 +26,7 @@ export type SoundItem = readonly [
     numSamples: number,
     language: string
 ];
-export type Package = ReadonlyArray<SoundItem>;
+export type Package = readonly SoundItem[];
 export type SoundAtlas = Record<string, Package>;
 
 export type SoundDetails = {
@@ -39,39 +40,30 @@ export type SoundDetails = {
     readonly bitrate: number;
 }
 
-// Extending EventTarget for disposable functionality
-// so we can remove all the listeners when we dispose of the sound manager.
-export class DisposableEventTarget extends EventTarget {
-    private listeners: Array<{
-        type: string,
-        callback: EventListenerOrEventListenerObject,
-        options?: boolean | AddEventListenerOptions }
-    > = [];
-
-    constructor() {
-        super();
-    }
-
-    override addEventListener(
-        type: string,
-        callback: EventListenerOrEventListenerObject,
-        options?: boolean | AddEventListenerOptions
-    ): void {
-        super.addEventListener(type, callback, options);
-        this.listeners.push({ type, callback, options });
-    }
-
-    dispose(): void {
-        this.listeners.forEach(({ type, callback, options }) => {
-            super.removeEventListener(type, callback, options);
-        });
-        this.listeners = [];
-    }
-}
-
 export type SoundManagerContext = Pick<AudioContext, 'decodeAudioData' | 'sampleRate' | 'createBuffer'>;
 
-export class SoundManager extends DisposableEventTarget {
+export type SoundManagerEvents =
+    'atlasloaded' |
+    'languagechanged' |
+    'packagechanged' |
+    'loadpathchanged' |
+    'fileloaded' |
+    'fileloading' |
+    'fileloaderror' |
+    'reloaded'
+
+export type SoundManagerDetails = {
+    readonly sourcePath: string;
+    readonly fileExtension: string;
+    readonly priorities: string[];
+    readonly forward: Map<string, SoundPromise>;
+    readonly reversed: Map<string, SoundPromise>;
+    readonly state: typeof RUNNING | typeof DISPOSED;
+}
+
+export class SoundManager extends TypedEventTarget<SoundManagerEvents, string> {
+    readonly name = 'SoundManager' as const
+    readonly [Symbol.toStringTag] = 'SoundManager' as const
     constructor(
         /**
          * The audio context to use.
@@ -81,7 +73,7 @@ export class SoundManager extends DisposableEventTarget {
          * That you are using outside of the manager.
          * @default new AudioContext({ sampleRate: 48000 })
          */
-        public context: SoundManagerContext = new AudioContext({ sampleRate: 48000 }),
+        public context: SoundManagerContext = new AudioContext({ sampleRate: 48_000 }),
         /** The sound atlas to use see the npm package `@jadujoel/scode` to generate the atlas. */
         public atlas: SoundAtlas = {},
         /**
@@ -175,7 +167,7 @@ export class SoundManager extends DisposableEventTarget {
         const response = await fetch(url);
         const atlas: SoundAtlas = await response.json();
         this.atlas = atlas;
-        this.dispatchEvent(new Event('atlasloaded'));
+        this.dispatchEvent({ type: 'atlasloaded' });
     }
 
     /**
@@ -194,7 +186,7 @@ export class SoundManager extends DisposableEventTarget {
     setAtlas(atlas: SoundAtlas): void {
         if (this.state !== RUNNING) return;
         this.atlas = atlas;
-        this.dispatchEvent(new Event('atlasloaded'));
+        this.dispatchEvent({ type: 'atlasloaded' });
     }
 
     /**
@@ -229,7 +221,7 @@ export class SoundManager extends DisposableEventTarget {
             this.activeLanguages.splice(index, 1);
             this.activeLanguages.unshift(language);
         }
-        this.dispatchEvent(new CustomEvent('languagechanged', { detail: { language } }));
+        this.dispatchEvent({ type: 'languagechanged', detail: language });
         return true;
     }
 
@@ -259,7 +251,7 @@ export class SoundManager extends DisposableEventTarget {
             this.activePackageNames.splice(index, 1);
             this.activePackageNames.unshift(packageName);
         }
-        this.dispatchEvent(new CustomEvent('packagechanged', { detail: { packageName } }));
+        this.dispatchEvent({ type: 'packagechanged', detail: packageName });
         return true;
     }
 
@@ -272,7 +264,7 @@ export class SoundManager extends DisposableEventTarget {
      * const pkg = manager.getPackage()
      * // pkg === [["a", "24kb.2ch.12372919168763747631", 12372919168763747631, "en"], ...]
      */
-    getPackageItems(name: string = this.activePackageNames[0] ?? ""): ReadonlyArray<SoundItem> {
+    getPackageItems(name: string = this.activePackageNames[0] ?? ""): readonly SoundItem[] {
         if (this.state === DISPOSED) return [];
         return this.atlas[name] ?? [];
     }
@@ -306,7 +298,7 @@ export class SoundManager extends DisposableEventTarget {
     getPackageNames(names?: readonly string[]): string[] {
         if (this.state === DISPOSED) return [];
         if (names) {
-            return names.filter(name => this.atlas.hasOwnProperty(name));
+            return names.filter(name => name in this.atlas);
         }
         return Object.keys(this.atlas);
     }
@@ -435,7 +427,7 @@ export class SoundManager extends DisposableEventTarget {
             return;
         }
         this.sourcePath = path;
-        this.dispatchEvent(new Event('loadpathchange'));
+        this.dispatchEvent({ type: 'loadpathchanged', detail: path });
     }
 
     /**
@@ -468,7 +460,6 @@ export class SoundManager extends DisposableEventTarget {
 
     requestBufferReversedAsync(sourceName: string): SoundPromise {
         const item = this.findItemBySourceName(sourceName);
-        console.log('item', item)
         if (item === undefined) {
             return SoundPromise.from(null);
         }
@@ -477,19 +468,16 @@ export class SoundManager extends DisposableEventTarget {
             return this.reversed.get(file)!;
         }
         const forward = this.loadItem(item)
-        console.log('forward.value')
         if (forward.value === null) {
             // no need to waste resources creating a new promise
             this.reversed.set(file, forward)
             return forward
         }
-        console.log('creating buffer')
         const buffer = this.context.createBuffer(
             forward.value.numberOfChannels,
             forward.value.length,
             forward.value.sampleRate
         )
-        console.log('creating reversed promise')
         const reversed = SoundPromise.new(this.context)
         reversed.value = buffer
         forward.then(decoded => {
@@ -502,7 +490,6 @@ export class SoundManager extends DisposableEventTarget {
             reversed.resolve(buffer)
             return buffer
         })
-        console.log('returning reversed')
         return reversed
     }
 
@@ -684,8 +671,7 @@ export class SoundManager extends DisposableEventTarget {
     findItemBySourceName(sourceName: string, packageNames: readonly string[] = this.activePackageNames, languages: readonly string[] = this.activeLanguages): SoundItem | undefined {
         if (this.state !== RUNNING) return undefined;
         return packageNames
-            .map(name => this.getPackageItems(name))
-            .flat()
+            .flatMap(name => this.getPackageItems(name))
             .find(item =>
                 item[SOURCE] === sourceName && languages.includes(item[LANG])
             );
@@ -706,8 +692,7 @@ export class SoundManager extends DisposableEventTarget {
     findItemByFileName(fileName: string, packageNames: string[] = this.activePackageNames): SoundItem | undefined {
         if (this.state !== RUNNING) return undefined;
         return packageNames
-            .map(name => this.getPackageItems(name))
-            .flat()
+            .flatMap(name => this.getPackageItems(name))
             .find(item => item[FILE] === fileName);
     }
 
@@ -760,13 +745,13 @@ export class SoundManager extends DisposableEventTarget {
                     return buffer
                 }
                 fill(buffer!, decoded);
-                this.dispatchEvent(new CustomEvent("loaded", { detail: { file } }))
+                this.dispatchEvent({ type: "fileloaded", detail: file })
                 return buffer
             }).catch(() => {
-                this.dispatchEvent(new CustomEvent("loaderror", { detail: { file } }))
-                return null
+                this.dispatchEvent({ type: "fileloaderror", detail: file })
+                return
             })
-        this.dispatchEvent(new CustomEvent("loading", { detail: { file } }))
+        this.dispatchEvent({ type: "fileloading", detail: file })
         return promise;
     }
 
@@ -798,10 +783,9 @@ export class SoundManager extends DisposableEventTarget {
         }
         const item = this.findItemByFileName(file);
         if (item === undefined) {
-            this.dispatchEvent(new CustomEvent("soundloaderror", { detail: { file } }))
+            this.dispatchEvent({ type: "fileloaderror", detail: file })
             return SoundPromise.from(null);
         }
-        console.log('load file', file, item)
         return this.loadItem(item);
     }
 
@@ -853,8 +837,8 @@ export class SoundManager extends DisposableEventTarget {
                 this.getPackages(packageNames)
                     .map(pack => pack
                     .filter(item => item[LANG] === language)
-                    .map(item => this.loadItem(item))
-                ).flat()
+                    .flatMap(item => this.loadItem(item))
+                )
             )
         }
     }
@@ -1021,7 +1005,7 @@ export class SoundManager extends DisposableEventTarget {
     reload(disposeListeners = false): SoundManager {
         this.dispose(disposeListeners)
         this.state = RUNNING
-        this.dispatchEvent(new Event('reloaded'));
+        this.dispatchEvent({ type: 'reloaded' });
         return this
     }
 

@@ -8,16 +8,16 @@ globalThis.fetch = mockedFetch as unknown as typeof fetch;
 const context = new MockContext();
 const atlas = {
   "localised": [
-    ["voice_player", "24kb.1ch.12833676159346608193", 54128, "english"],
-    ["voice_banker", "24kb.1ch.16205214575666683713", 78000, "english"],
-    ["voice_player", "24kb.1ch.13700607245644122936", 60500, "swedish"],
-    ["voice_banker", "24kb.1ch.1538874823881351140", 39877, "swedish"],
-    ["effect_riser", "48kb.2ch.6176321738731274452", 23700, "_"],
-    ["music_tension", "24kb.2ch.3369919070620850854", 23700, "_"]
+    ["voice_player", "24kb.1ch.12833676159346608193", 54_128, "english"],
+    ["voice_banker", "24kb.1ch.16205214575666683713", 78_000, "english"],
+    ["voice_player", "24kb.1ch.13700607245644122936", 60_500, "swedish"],
+    ["voice_banker", "24kb.1ch.1538874823881351140", 39_877, "swedish"],
+    ["effect_riser", "48kb.2ch.6176321738731274452", 23_700, "_"],
+    ["music_tension", "24kb.2ch.3369919070620850854", 23_700, "_"]
   ],
   "template": [
-    ["music_drums", "24kb.2ch.12372919168763747631", 192000, "_"],
-    ["music_guitar", "24kb.2ch.8103809083249652511", 192000, "_"]
+    ["music_drums", "24kb.2ch.12372919168763747631", 192_000, "_"],
+    ["music_guitar", "24kb.2ch.8103809083249652511", 192_000, "_"]
   ]
 } as const satisfies SoundAtlas;
 
@@ -44,7 +44,6 @@ it('should not change language if it is already the active language', () => {
 it('should set package by name correctly', () => {
   const manager = dmanager();
   manager.setPackageByName('localised');
-  console.log(manager.activePackageNames)
   expect(manager.activePackageNames[0]).toBe('localised');
 });
 
@@ -161,7 +160,9 @@ it('loadPackageName loads all sounds in a specified package', async () => {
   const packageName = 'localised';
   const loadedBuffers = await manager.loadPackageName(packageName);
   expect(loadedBuffers).toHaveLength(atlas[packageName].length);
-  loadedBuffers.forEach(buffer => expect(buffer).toBeInstanceOf(MockAudioBuffer));
+  for (const buffer of loadedBuffers) {
+    expect(buffer).toBeInstanceOf(MockAudioBuffer);
+  }
 });
 
 it('loadPackageNames loads all sounds in specified packages', async () => {
@@ -170,7 +171,9 @@ it('loadPackageNames loads all sounds in specified packages', async () => {
   const loadedBuffers = await manager.loadPackageNames(packageNames);
   const totalItems = packageNames.reduce((acc, name) => acc + atlas[name as keyof typeof atlas].length, 0);
   expect(loadedBuffers).toHaveLength(totalItems);
-  loadedBuffers.forEach(buffer => expect(buffer).toBeInstanceOf(MockAudioBuffer));
+  for (const buffer of loadedBuffers) {
+    expect(buffer).toBeInstanceOf(MockAudioBuffer);
+  }
 });
 
 it('loadEverything loads all sounds from all packages', async () => {
@@ -178,7 +181,9 @@ it('loadEverything loads all sounds from all packages', async () => {
   const loadedBuffers = await manager.loadEverything();
   const totalItems = Object.values(atlas).flat().length;
   expect(loadedBuffers).toHaveLength(totalItems);
-  loadedBuffers.forEach(buffer => expect(buffer).toBeInstanceOf(MockAudioBuffer));
+  for (const buffer of loadedBuffers) {
+    expect(buffer).toBeInstanceOf(MockAudioBuffer);
+  }
 });
 
 it('getLanguages retrieves unique languages from the atlas', () => {
@@ -203,9 +208,9 @@ it('loadLanguage loads all sounds for a specified language', async () => {
   const expectedItems = Object.values(atlas)
     .flat()
     .filter(item => item[3] === language);
-  expectedItems.forEach(item => {
+  for (const item of expectedItems) {
     expect(manager.forward.has(item[1])).toBe(true);
-  });
+  }
 });
 
 it('loadLanguages loads sounds for multiple specified languages', async () => {
@@ -213,14 +218,14 @@ it('loadLanguages loads sounds for multiple specified languages', async () => {
   const languages = ['english', 'swedish'];
   await manager.loadLanguages(languages);
   // Verify that sounds for both languages are loaded
-  languages.forEach(language => {
+  for (const language of languages) {
     const expectedItems = Object.values(atlas)
       .flat()
       .filter(item => item[3] === language);
-    expectedItems.forEach(item => {
+    for (const item of expectedItems) {
       expect(manager.forward.has(item[1])).toBe(true);
-    });
-  });
+    }
+  }
 });
 
 it('disposePackages disposes of all sounds in specified packages', () => {
@@ -236,7 +241,7 @@ it('disposeLanguage disposes of all sounds with a specified language', () => {
   manager.loadLanguage('english').then(() => {
     manager.disposeLanguage('english');
     // Verify that no sounds with the language "english" remain
-    const remainingItems = Array.from(manager.forward.keys()).filter(file => {
+    const remainingItems = [...manager.forward.keys()].filter(file => {
       const soundItem = atlas.localised.find(si => si[FILE] === file);
       return soundItem && soundItem[3] === 'english';
     });
@@ -248,7 +253,7 @@ it('reloadWithAtlas reloads the manager with a new atlas', async () => {
   const manager = dmanager();
   const newAtlas = {
     "custom": [
-      ["custom_sound", "24kb.2ch.123456789", 96000, "_"]
+      ["custom_sound", "24kb.2ch.123456789", 96_000, "_"]
     ]
   } as const satisfies SoundAtlas;
   manager.reloadWithAtlas(newAtlas);
@@ -260,7 +265,7 @@ it('setAtlas updates the atlas without reloading', () => {
   const manager = dmanager();
   const newAtlas = {
     "updated": [
-      ["updated_sound", "24kb.2ch.987654321", 48000, "english"]
+      ["updated_sound", "24kb.2ch.987654321", 48_000, "english"]
     ]
   } as const satisfies SoundAtlas;
   manager.setAtlas(newAtlas);
@@ -297,8 +302,8 @@ it('isDefined returns false for undefined values', () => {
 });
 
 it('fill copies audio data using copyToChannel when available', () => {
-  const sourceBuffer = new MockAudioBuffer({ numberOfChannels: 1, length: 5, sampleRate: 48000 });
-  const targetBuffer = new MockAudioBuffer({ numberOfChannels: 1, length: 5, sampleRate: 48000 });
+  const sourceBuffer = new MockAudioBuffer({ numberOfChannels: 1, length: 5, sampleRate: 48_000 });
+  const targetBuffer = new MockAudioBuffer({ numberOfChannels: 1, length: 5, sampleRate: 48_000 });
 
   // Fill source buffer with some data
   const sourceData = sourceBuffer.getChannelData(0);
@@ -317,8 +322,8 @@ it('fill copies audio data using copyToChannel when available', () => {
 
 
 it('fill copies audio data using copyFromChannel when copyToChannel is not available', () => {
-  const sourceBuffer = new MockAudioBuffer({ numberOfChannels: 1, length: 5, sampleRate: 48000 }, true);
-  const targetBuffer = new MockAudioBuffer({ numberOfChannels: 1, length: 5, sampleRate: 48000 }, true);
+  const sourceBuffer = new MockAudioBuffer({ numberOfChannels: 1, length: 5, sampleRate: 48_000, legacy: true });
+  const targetBuffer = new MockAudioBuffer({ numberOfChannels: 1, length: 5, sampleRate: 48_000, legacy: true });
   // Fill source buffer with some data
   const sourceData = sourceBuffer.getChannelData(0);
   for (let i = 0; i < sourceData.length; i++) {
@@ -354,7 +359,7 @@ it('unique filters an array to unique values', () => {
 
 it('getSourceNumSamples returns correct number of samples for a source', () => {
   const sourceName = "voice_player";
-  const expectedNumSamples = 54128; // Corresponding to "voice_player" in "localised"
+  const expectedNumSamples = 54_128; // Corresponding to "voice_player" in "localised"
   expect(dmanager().getSourceNumSamples(sourceName)).toBe(expectedNumSamples);
 });
 
@@ -366,7 +371,7 @@ it('getSourceNumChannels returns correct number of channels for a source', () =>
 
 it('getSourceDuration returns correct duration for a source', () => {
   const sourceName = "voice_banker";
-  const expectedNumSamples = 78000;
+  const expectedNumSamples = 78_000;
   const expectedDuration = expectedNumSamples / context.sampleRate; // Duration in seconds
   expect(new SoundManager(context, atlas, 'fixture').getSourceDuration(sourceName)).toBeCloseTo(expectedDuration);
 });
@@ -374,8 +379,12 @@ it('getSourceDuration returns correct duration for a source', () => {
 it('requestBufferAsync retrieves a sound buffer asynchronously', async () => {
   const manager = dmanager();
   const sourceName = 'voice_player'; // Use a source name from your mock atlas
-  const bufferPromise = manager.requestBufferAsync(sourceName);
-  await expect(bufferPromise).resolves.toBeInstanceOf(MockAudioBuffer);
+  const promise = manager.requestBufferAsync(sourceName);
+  expect(promise.state).toBe(SoundPromise.State.LOADING);
+  const buffer = await promise
+  expect(promise.state).toBe(SoundPromise.State.LOADED);
+  expect(promise.value).toBeInstanceOf(MockAudioBuffer);
+  expect(buffer).toBeInstanceOf(MockAudioBuffer);
 });
 
 it('requestBufferAsync returns a null buffer for a source that does not exist', async () => {
@@ -403,7 +412,8 @@ it('requestBufferReversedAsync loads and reverses a buffer', async () => {
   const manager = dmanager();
   const sourceName = 'voice_player'; // Assuming this is in your atlas
   const promise = manager.requestBufferReversedAsync(sourceName);
-  expect(promise).toBeInstanceOf(SoundPromise);
+  expect(promise.name).toBe("SoundPromise");
+  expect(promise.toString()).toBe("[object SoundPromise]");
   const buffer = await promise
   expect(buffer).toBeInstanceOf(MockAudioBuffer);
 });
@@ -445,7 +455,183 @@ it('getFileByItem returns the file name for an item', () => {
 it('loadFile loads a file correctly', async () => {
   const manager = dmanager();
   const fileName = atlas.localised[0][1]; // File name from the atlas
-  const loadPromise = manager.loadFile(fileName);
-  expect(loadPromise).toBeInstanceOf(SoundPromise);
-  await expect(loadPromise).resolves.toBeInstanceOf(MockAudioBuffer);
+  const promise = manager.loadFile(fileName);
+  expect(promise.name).toBe('SoundPromise');
+  await promise
+  expect(promise.state).toBe(SoundPromise.State.LOADED);
+  expect(promise.value).toBeInstanceOf(MockAudioBuffer);
+});
+
+it('loadSource loads a sound by its source name', async () => {
+  const manager = dmanager();
+  const sourceName = 'voice_player'; // Ensure this is a valid source name in your atlas
+  const buffer = await manager.loadSource(sourceName);
+  expect(buffer).toBeInstanceOf(MockAudioBuffer); // Or null if the source does not exist
+});
+
+it('loadSources loads multiple sounds by their source names', async () => {
+  const manager = dmanager();
+  const sourceNames = ['voice_player', 'music_drums']; // Ensure these are valid source names in your atlas
+  const buffers = await manager.loadSources(sourceNames);
+  expect(buffers.length).toEqual(sourceNames.length);
+  for (const buffer of buffers) {
+    expect(buffer).toBeInstanceOf(MockAudioBuffer); // Or null for non-existent sources
+  }
+});
+
+it('loadPriorityList loads sounds based on priority', async () => {
+  const manager = dmanager();
+  manager.setPriorityList(['voice_player', 'music_drums']); // Setting priorities
+  const buffers = await manager.loadPriorityList();
+  expect(buffers.length).toBe(2); // Assumes at least one of the priority sources exists
+  expect(manager.getLoadStateBySource("voice_player")).toBe(SoundPromise.State.LOADED)
+  expect(manager.getLoadStateBySource("music_drums")).toBe(SoundPromise.State.LOADED)
+  for (const buffer of buffers) {
+    expect(buffer).toBeInstanceOf(MockAudioBuffer);
+  }
+});
+
+it('disposePackage disposes of all sounds within a specified package', async () => {
+  const manager = dmanager();
+  const packageName = 'localised'; // Choose a package that exists in your atlas
+  expect(manager.getDetailsBySource("voice_player")?.state).toBe(SoundPromise.State.UNLOADED)
+  await manager.loadPackageName(packageName);
+  expect(manager.getDetailsBySource("voice_player")?.state).toBe(SoundPromise.State.LOADED)
+  manager.disposePackage(packageName);
+  expect(manager.getDetailsBySource("voice_player")?.state).toBe(SoundPromise.State.UNLOADED)
+});
+
+it('getSourceNames returns correct source names based on package names and languages', () => {
+  const manager = dmanager();
+  const packageNames = ['localised']; // Example package name
+  const languages = ['english']; // Example language
+  const sourceNames = manager.getSourceNames(packageNames, languages);
+  expect(sourceNames).toEqual(expect.arrayContaining(['voice_player', 'voice_banker'])); // Adjust according to your atlas content
+});
+
+it('getActiveSourceNames returns correct active source names', () => {
+  const manager = dmanager();
+  const activeSourceNames = manager.getActiveSourceNames();
+  expect(activeSourceNames).toEqual(expect.arrayContaining(['voice_player', 'voice_banker'])); // Adjust based on active packages and languages
+});
+
+it('getFileBySource returns correct file name for a source', () => {
+  const manager = dmanager();
+  const sourceName = 'voice_player'; // Example source name
+  const fileName = manager.getFileBySource(sourceName);
+  expect(fileName).toBe('24kb.1ch.12833676159346608193'); // Expected file name for the source
+});
+
+it('getNumChannelsByItem returns correct number of channels', () => {
+  const manager = dmanager();
+  const soundItem = atlas.localised[0]; // Use the first item as an example
+  const numChannels = manager.getNumChannelsByItem(soundItem);
+  expect(numChannels).toBe(1); // Assuming the item is mono
+});
+
+it('getNumSamplesByFile returns correct number of samples', () => {
+  const manager = dmanager();
+  const file = '24kb.1ch.12833676159346608193'; // Example file from the atlas
+  const numSamples = manager.getNumSamplesByFile(file);
+  expect(numSamples).toBe(54_128); // Expected number of samples for the file
+});
+
+it('getNumChannelsByItem returns correct number of channels for an item', () => {
+  const manager = dmanager();
+  const item = atlas.localised[0]; // Assuming mono sound for simplicity
+  const numChannels = manager.getNumChannelsByItem(item);
+  expect(numChannels).toBe(1); // Adjust based on your mock atlas
+});
+
+it('getNumSamplesByFile returns correct number of samples for a file', () => {
+  const manager = dmanager();
+  const file = '24kb.1ch.12833676159346608193'; // Example file from the atlas
+  const numSamples = manager.getNumSamplesByFile(file);
+  expect(numSamples).toBe(54_128); // Adjust based on your mock atlas
+});
+
+it('getDurationByFile returns correct duration for a file', () => {
+  const manager = dmanager();
+  const file = '24kb.1ch.12833676159346608193'; // Example file from the atlas
+  const duration = manager.getDurationByFile(file);
+  const expectedDuration = 54_128 / context.sampleRate; // Adjust based on your context's sample rate
+  expect(duration).toBeCloseTo(expectedDuration);
+});
+
+it('getNumSamplesBySource returns correct number of samples for a source', () => {
+  const manager = dmanager();
+  const sourceName = 'voice_player'; // Example source name from the atlas
+  const numSamples = manager.getNumSamplesBySource(sourceName);
+  expect(numSamples).toBe(54_128); // Adjust based on your mock atlas
+});
+
+it('getUrlBySource returns correct URL for a source', () => {
+  const manager = dmanager();
+  const sourceName = 'voice_player';
+  const url = manager.getUrlBySource(sourceName);
+  expect(url).toBe('fixtures/24kb.1ch.12833676159346608193.webm');
+});
+
+it('disposeSource correctly disposes of a source', async () => {
+  const manager = dmanager();
+  const sourceName = 'voice_player';
+  await manager.loadSource(sourceName);
+  manager.disposeSource(sourceName);
+  const file = manager.getFileBySource(sourceName);
+  expect(manager.forward.has(file!)).toBe(false);
+  expect(manager.reversed.has(file!)).toBe(false);
+});
+
+it('getNumChannelsBySource returns correct number of channels for a source', () => {
+  const manager = dmanager();
+  expect(manager.getNumChannelsBySource('voice_player')).toBe(1);
+  expect(manager.getNumChannelsBySource('music_drums')).toBe(2);
+  expect(manager.getNumChannelsBySource('nonexistent')).toBeUndefined()
+});
+
+it('getDurationBySource returns correct duration for a source', () => {
+  const manager = dmanager();
+  const sourceName = 'voice_player'; // Example source name from the atlas
+  const duration = manager.getDurationBySource(sourceName);
+  const expectedDuration = manager.getNumSamplesBySource(sourceName)! / manager.context.sampleRate;
+  expect(duration).toBeCloseTo(expectedDuration);
+});
+
+it('dispatchEvent correctly dispatches "fileloaderror" when a file fails to load', async () => {
+  const manager = dmanager();
+  const fileName = 'nonexistent';
+  let details
+  manager.addEventListener('fileloaderror', ({ detail }) => {
+    details = detail;
+  })
+  await manager.loadFile(fileName);
+  expect(details).toBe(fileName);
+});
+
+it('getNumChannelsBySource returns undefined', () => {
+  const manager = dmanager()
+  manager.dispose()
+  const numChannels = manager.getNumChannelsBySource('voice_player');
+  expect(numChannels).toBeUndefined();
+});
+
+it('getDurationBySource returns undefined', () => {
+  const manager = dmanager()
+  manager.dispose()
+  const duration = manager.getDurationBySource('voice_player');
+  expect(duration).toBeUndefined();
+});
+
+it('loadFile does not load a file', async () => {
+  const manager = dmanager()
+  manager.dispose()
+  const fileName = atlas.localised[0][1]; // File name from the atlas
+  const promise = manager.loadFile(fileName);
+  await expect(promise).resolves.toBeNull();
+});
+
+it('disposeSource does not throw error', () => {
+  const manager = dmanager()
+  manager.dispose()
+  expect(() => manager.disposeSource('voice_player')).not.toThrow();
 });

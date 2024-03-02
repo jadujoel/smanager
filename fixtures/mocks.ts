@@ -1,15 +1,30 @@
-import fs from 'fs/promises';
+import fs from 'node:fs/promises';
 import type { SoundManagerContext } from '../src/sound-manager';
+
+export interface MockAudioBufferOptions {
+  readonly numberOfChannels?: number;
+  readonly length?: number;
+  readonly sampleRate?: number;
+  readonly legacy?: boolean
+}
+
 export class MockAudioBuffer implements AudioBuffer {
-  channelData: Float32Array[];
-  numberOfChannels: number;
-  length: number;
-  sampleRate: number;
-  constructor(options: { numberOfChannels: number, length: number, sampleRate: number }, legacy = false) {
-    this.numberOfChannels = options.numberOfChannels;
-    this.length = options.length;
-    this.sampleRate = options.sampleRate;
-    this.channelData = Array.from({ length: options.numberOfChannels }, () => new Float32Array(options.length));
+  readonly channelData: Float32Array[];
+  readonly numberOfChannels: number;
+  readonly length: number;
+  readonly sampleRate: number;
+  readonly name = "AudioBuffer" as const;
+  constructor(options: MockAudioBufferOptions = {}) {
+    const {
+      numberOfChannels = 1,
+      length = 1,
+      sampleRate = 48_000,
+      legacy = false
+    } = options
+    this.numberOfChannels = numberOfChannels
+    this.length = length
+    this.sampleRate = sampleRate
+    this.channelData = Array.from({ length: numberOfChannels }, () => new Float32Array(length));
     if (legacy) {
       this.copyFromChannel = undefined as any
       this.copyToChannel = undefined as any
@@ -43,25 +58,35 @@ export class MockAudioBuffer implements AudioBuffer {
 export class MockContext implements SoundManagerContext {
   sampleRate: number;
   constructor(options?: { sampleRate?: number }) {
-    this.sampleRate = options?.sampleRate ?? 48000
+    this.sampleRate = options?.sampleRate ?? 48_000
   }
   createBuffer(numberOfChannels: number, length: number, sampleRate: number): AudioBuffer {
     return new MockAudioBuffer({ numberOfChannels, length, sampleRate });
   }
-  decodeAudioData(_audioData: ArrayBuffer, _successCallback?: DecodeSuccessCallback | null | undefined, _errorCallback?: DecodeErrorCallback | null | undefined): Promise<AudioBuffer> {
+  decodeAudioData(_audioData: ArrayBuffer, _successCallback?: DecodeSuccessCallback | undefined | undefined, _errorCallback?: DecodeErrorCallback | undefined | undefined): Promise<AudioBuffer> {
     return Promise.resolve(
       new MockAudioBuffer({ numberOfChannels: 1, length: 1, sampleRate: this.sampleRate })
     );
   }
 }
 
-export type MockedFetchReturn = Promise<{ readonly arrayBuffer: () => Promise<ArrayBuffer>, readonly json: () => Promise<any> }>;
+export type MockedFetchReturn = Promise<{ readonly arrayBuffer: () => Promise<ArrayBuffer>, readonly json: () => Promise<unknown> }>;
 export type MockedFetch = (url: string) => MockedFetchReturn;
 
 export function mockedFetch(url: string): MockedFetchReturn {
-  console.log("fetching", url)
-  return fs.readFile(url).then(data => ( {
-    arrayBuffer: () => Promise.resolve(data.buffer),
-    json: () => Promise.resolve(JSON.parse(data.toString()))
-  }));
+  console.log('fetching', url)
+  try {
+    return fs.readFile(url).then(data => ( {
+      arrayBuffer: () => Promise.resolve(data.buffer),
+      json: () => Promise.resolve(JSON.parse(data.toString()))
+    })).catch(() => {
+      console.log('Failed to fetch')
+      // return Promise.reject(new Error('Failed to fetch'));
+      throw new Error('Failed to fetch');
+    })
+  } catch (_) {
+    console.log('Failed to fetch')
+    // return Promise.reject(new Error('Failed to fetch'));
+    throw new Error('Failed to fetch');
+  }
 }
