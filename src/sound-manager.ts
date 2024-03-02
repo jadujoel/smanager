@@ -580,7 +580,7 @@ export class SoundManager extends TypedEventTarget<SoundManagerEvents, string> {
 
     getBitrateByFile(file: string): number | undefined {
         const splat = file.split(".")
-        const br = splat[1]
+        const br = splat[0]
         if (br === undefined) {
             return undefined
         }
@@ -651,6 +651,14 @@ export class SoundManager extends TypedEventTarget<SoundManagerEvents, string> {
             return
         }
         return this.getDetailsByFile(file)
+    }
+
+    getBitrateBySource(sourceName: string): number | undefined {
+        const file = this.getFileNameBySourceName(sourceName);
+        if (file === undefined) {
+            return
+        }
+        return this.getBitrateByFile(file)
     }
 
     getUrlBySource(sourceName: string): string | undefined {

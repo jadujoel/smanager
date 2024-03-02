@@ -635,3 +635,10 @@ it('disposeSource does not throw error', () => {
   manager.dispose()
   expect(() => manager.disposeSource('voice_player')).not.toThrow();
 });
+
+it('gets correct bitrate', () => {
+  const manager = dmanager()
+  const sourceName = 'voice_player';
+  const expectedBitrate = 24;
+  expect(manager.getBitrateBySource(sourceName)).toBe(expectedBitrate);
+})
