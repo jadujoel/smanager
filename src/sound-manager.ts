@@ -406,6 +406,21 @@ export class SoundManager extends TypedEventTarget<SoundManagerEvents, string> {
         return languages;
     }
 
+    getAllFilenames(): string[] {
+        return unique(Object.values(this.atlas).flat().map(item => item[FILE]));
+    }
+
+    getAllUrls(): string[] {
+        return unique(this.getAllFilenames().map(file => this.getUrlByFile(file)!));
+    }
+
+    getAllDetails(): SoundDetails[] {
+        return this.getAllFilenames().map(file => this.getDetailsByFile(file)!);
+    }
+
+    getAllItems(): SoundItem[] {
+        return Object.values(this.atlas).flat();
+    }
 
     /**
      * Set the load path of the sound files.
