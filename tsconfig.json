@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
+    "target": "es2017",
+    "module": "ES6",
     "moduleResolution": "Bundler",
     "noPropertyAccessFromIndexSignature": true,
     "noFallthroughCasesInSwitch": true,
